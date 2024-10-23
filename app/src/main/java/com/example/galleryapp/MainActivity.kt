@@ -3,28 +3,23 @@ package com.example.galleryapp
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.os.Build
 
 class MainActivity : AppCompatActivity() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var imageAdapter: ImageAdapter
-    private val imageList = mutableListOf<String>()
+    private val imageList = ArrayList<String>()
 
     companion object {
-        private const val REQUEST_PERMISSION = 1
-        private const val TAG = "MainActivity"
+        private const val PERMISSION_REQUEST_CODE = 100
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,103 +27,105 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         recyclerView = findViewById(R.id.recyclerView)
-        recyclerView.layoutManager = GridLayoutManager(this, 3)
+        recyclerView.layoutManager = GridLayoutManager(this, 3) // 3 columns
 
-        requestStoragePermission()
+        // Check for permissions
+        checkPermissionAndLoadImages()
     }
 
-    private fun requestStoragePermission() {
-        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            Manifest.permission.READ_MEDIA_IMAGES
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-
-        when {
-            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED -> {
+    private fun checkPermissionAndLoadImages() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // For Android 10 and above
+            if (checkPermission(Manifest.permission.READ_MEDIA_IMAGES)) {
                 loadImages()
+            } else {
+                requestPermission(Manifest.permission.READ_MEDIA_IMAGES)
             }
-            ActivityCompat.shouldShowRequestPermissionRationale(this, permission) -> {
-                showPermissionExplanationDialog(permission)
-            }
-            else -> {
-                ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_PERMISSION)
+        } else {
+            // For Android 9 and below
+            if (checkPermission(Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                loadImages()
+            } else {
+                requestPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
         }
     }
 
-    private fun showPermissionExplanationDialog(permission: String) {
-        AlertDialog.Builder(this)
-            .setTitle("Permission Needed")
-            .setMessage("This app needs access to your images to display them. Please grant the permission.")
-            .setPositiveButton("OK") { _, _ ->
-                ActivityCompat.requestPermissions(this, arrayOf(permission), REQUEST_PERMISSION)
-            }
-            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
-            .create()
-            .show()
+    private fun checkPermission(permission: String): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            permission
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+    private fun requestPermission(permission: String) {
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(permission),
+            PERMISSION_REQUEST_CODE
+        )
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         when (requestCode) {
-            REQUEST_PERMISSION -> {
-                if (grantResults.isNotEmpty() && grantResults[0 ] == PackageManager.PERMISSION_GRANTED) {
+            PERMISSION_REQUEST_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                     loadImages()
                 } else {
-                    if (!ActivityCompat.shouldShowRequestPermissionRationale(this, permissions[0])) {
-                        showSettingsDialog()
-                    } else {
-                        Toast.makeText(this, "Permission denied. Cannot load images.", Toast.LENGTH_SHORT).show()
-                    }
+                    Toast.makeText(
+                        this,
+                        "Permission denied. Cannot load images.",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
-                return
             }
         }
-    }
-
-    private fun showSettingsDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Permission Required")
-            .setMessage("This app needs access to your images to function properly. Please enable the permission in the app settings.")
-            .setPositiveButton("Settings") { _, _ ->
-                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                val uri = Uri.fromParts("package", packageName, null)
-                intent.data = uri
-                startActivity(intent)
-            }
-            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
-            .create()
-            .show()
     }
 
     private fun loadImages() {
-        val projection = arrayOf(MediaStore.Images.Media.DATA)
-        val cursor = contentResolver.query(
+        imageList.clear()
+
+        val projection = arrayOf(
+            MediaStore.Images.Media.DATA,
+            MediaStore.Images.Media.DATE_ADDED
+        )
+
+        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+        contentResolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             projection,
             null,
             null,
-            null
-        )
+            sortOrder
+        )?.use { cursor ->
+            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
 
-        cursor?.use {
-            val columnIndex = it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA)
-            while (it.moveToNext()) {
-                val imagePath = it.getString(columnIndex)
+            while (cursor.moveToNext()) {
+                val imagePath = cursor.getString(dataColumn)
                 imageList.add(imagePath)
-                Log.d(TAG, "Added image path: $imagePath")
             }
         }
 
-        Log.d(TAG, "Total images loaded: ${imageList.size}")
-
-        if (imageList.isEmpty()) {
-            Toast.makeText(this, "No images found", Toast.LENGTH_SHORT).show()
-        } else {
-            imageAdapter = ImageAdapter(imageList, this)
-            recyclerView.adapter = imageAdapter
-            Log.d(TAG, "Adapter set to RecyclerView")
+        // Initialize adapter with click listener
+        imageAdapter = ImageAdapter(imageList, this) { position ->
+            try {
+                val intent = Intent(this, FullScreenImageActivity::class.java).apply {
+                    putStringArrayListExtra("image_list", ArrayList(imageList))
+                    putExtra("position", position)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Error opening image", Toast.LENGTH_SHORT).show()
+                e.printStackTrace()
+            }
         }
+
+        recyclerView.adapter = imageAdapter
     }
 }

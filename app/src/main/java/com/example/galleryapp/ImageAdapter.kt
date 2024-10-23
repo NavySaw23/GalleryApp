@@ -9,8 +9,11 @@ import android.widget.ImageView
 import androidx.recyclerview.widget.RecyclerView
 import java.io.File
 
-class ImageAdapter(private val imageList: List<String>, private val context: Context) :
-    RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
+class ImageAdapter(
+    private val imageList: List<String>,
+    private val context: Context,
+    private val onItemClick: (Int) -> Unit // Add click listener parameter
+) : RecyclerView.Adapter<ImageAdapter.ViewHolder>() {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_image, parent, false)
@@ -20,6 +23,11 @@ class ImageAdapter(private val imageList: List<String>, private val context: Con
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val imagePath = imageList[position]
         loadImageIntoImageView(imagePath, holder.imageView)
+
+        // Set click listener for the item
+        holder.itemView.setOnClickListener {
+            onItemClick(position)
+        }
     }
 
     override fun getItemCount(): Int {
@@ -37,12 +45,10 @@ class ImageAdapter(private val imageList: List<String>, private val context: Con
                 val bitmap = BitmapFactory.decodeFile(imagePath)
                 imageView.setImageBitmap(bitmap)
             } else {
-                // Set a placeholder image if the file doesn't exist
                 imageView.setImageResource(R.drawable.placeholder_image)
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            // Set a placeholder image if there's an error loading the image
             imageView.setImageResource(R.drawable.placeholder_image)
         }
     }
